@@ -1,0 +1,8 @@
+name: MomoFastrun
+main: moe.kouyou.momofastrun.MomoFastrun
+version: 1.0.0
+author: kouyoux
+commands:
+  momofastrun:
+    aliases:
+      - mfr
