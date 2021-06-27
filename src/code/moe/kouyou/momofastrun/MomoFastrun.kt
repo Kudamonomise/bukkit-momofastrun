@@ -4,7 +4,6 @@ import org.bukkit.Bukkit
 import org.bukkit.command.*
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.*
-import java.lang.invoke.MethodHandle
 import javax.tools.*
 
 class MomoFastrun : JavaPlugin() {
@@ -23,8 +22,6 @@ class MomoFastrun : JavaPlugin() {
     }
   }
 
-  val classCache = hashMapOf<String, Class<*>>()
-
   override fun onCommand(s: CommandSender?, c: Command?, l: String?, args: Array<out String>?): Boolean {
     if (!s!!.isOp) return true
     args!!
@@ -36,14 +33,10 @@ class MomoFastrun : JavaPlugin() {
         ,"只能调用参数为String[]或无参的静态方法"))
       return true
     }
-    val className: String = args[0]
+    val fileName: String = args[0]
     val method: String = if(args.size == 1) "main" else args[1]
     val runArg: Array<String> = if(args.size <= 2) emptyArray() else args.takeLast(args.size - 2).toTypedArray()
-    if(className !in classCache) {
-      val klass = load(read(find(args[0])))
-      classCache[className] = klass
-      run(klass, method, runArg)
-    } else run(classCache[className]!!, method, runArg)
+    run(load(read(find(fileName))), method, runArg)
     return true
   }
 
