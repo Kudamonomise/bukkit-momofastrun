@@ -7,3 +7,6 @@ gradle-app.setting
 .gradletasknamecache
 
 .idea/
+
+.settings
+.project
