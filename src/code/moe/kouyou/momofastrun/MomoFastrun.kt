@@ -4,21 +4,53 @@ import org.bukkit.Bukkit
 import org.bukkit.command.*
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.*
+import java.lang.invoke.*
+import java.net.URLClassLoader
+import java.nio.file.*
 import javax.tools.*
 
 class MomoFastrun : JavaPlugin() {
-  companion object {
-    lateinit var instance: MomoFastrun
-    lateinit var classloader: ClassLoader
-  }
+  lateinit var inst: MomoFastrun
+  lateinit var ucl: URLClassLoader
 
   override fun onEnable() {
-    instance = this
-    classloader = classLoader
-    bcl = BytecodeClassLoader(classloader)
+    inst = this
+    reloadAll()
+    initWatchService()
     Bukkit.getPluginCommand("momofastrun").setExecutor(this)
+  }
+
+  fun initWatchService() {
+    val service = FileSystems.getDefault().newWatchService()
+    Paths.get(dataFolder.toURI()).register(service, arrayOf(StandardWatchEventKinds.ENTRY_CREATE,
+      StandardWatchEventKinds.ENTRY_DELETE, StandardWatchEventKinds.ENTRY_MODIFY));
+    Thread {
+      while(inst.isEnabled) {
+        val key = service.take()
+        key.pollEvents()
+        reloadAll()
+        key.reset()
+      }
+    }.start()
+    println("成功挂载了自动重载")
+  }
+
+  fun reloadAll() {
     if (!dataFolder.exists()) {
       dataFolder.mkdirs()
+      return
+    }
+    methodCache.clear()
+    ucl = URLClassLoader(arrayOf(dataFolder.toURI().toURL()), classLoader)
+  }
+
+  val lookup: MethodHandles.Lookup = MethodHandles.publicLookup()
+  val methodCache: MutableMap<String, MethodHandle> = hashMapOf()
+  fun findMethod(c: Class<*>, name: String): MethodHandle {
+    return methodCache.getOrPut("${c.canonicalName}::$name") {
+      val m = c.getDeclaredMethod(name, Array<String>::class.java)
+      m.isAccessible = true
+      return lookup.unreflect(m)
     }
   }
 
@@ -26,56 +58,15 @@ class MomoFastrun : JavaPlugin() {
     if (!s!!.isOp) return true
     args!!
     if (args.size == 0) {
-      s.sendMessage(arrayOf(
-        "参数不足.",
-        "/momofastrun <文件名> [方法名] [参数...]"
-        ,"示例: /mfr Test.class main HelloWorld"
-        ,"只能调用参数为String[]或无参的静态方法"))
+      s.sendMessage(arrayOf("参数不足.", "/momofastrun <类名> [方法名] [参数...]",
+        "示例: /mfr Test.class main HelloWorld", "只能调用参数为String[]的静态方法"))
       return true
     }
-    val fileName: String = args[0]
-    val method: String = if(args.size == 1) "main" else args[1]
-    val runArg: Array<String> = if(args.size <= 2) emptyArray() else args.takeLast(args.size - 2).toTypedArray()
-    run(load(read(find(fileName))), method, runArg)
+    val className: String = args[0]
+    val method: String = if (args.size == 1) "main" else args[1]
+    val runArg: Array<String> = if (args.size < 3) emptyArray() else args.takeLast(args.size - 2).toTypedArray()
+    findMethod(ucl.loadClass(className), method).invoke(runArg)
     return true
   }
 
-  fun find(name: String): File {
-    if (!dataFolder.exists()) {
-      dataFolder.mkdirs()
-      throw RuntimeException()
-    }
-    val f = File(dataFolder, name)
-    if (!f.exists()) {
-      f.createNewFile()
-      throw RuntimeException()
-    }
-    return f
-  }
-
-  fun read(f: File): ByteArray {
-    val fis = f.inputStream()
-    val result = fis.readBytes()
-    fis.close()
-    return result
-  }
-
-  lateinit var bcl: BytecodeClassLoader
-  fun load(code: ByteArray): Class<*> = bcl.define(code)
-
-  fun run(c: Class<*>, m: String, args: Array<String>) {
-    val ms = c.declaredMethods.filter { it.name == m }.filter {
-      if(it.parameterCount == 0) true
-      else it.parameterCount == 1 &&  it.parameterTypes[0] == Array<String>::class.java
-    }
-    val met = ms[0]
-    met.isAccessible = true
-    if(met.parameterCount == 0) met.invoke(null)
-    else met.invoke(null, args)
-  }
-
-}
-
-class BytecodeClassLoader(p: ClassLoader) : ClassLoader(p) {
-  fun define(code: ByteArray): Class<*> = super.defineClass(code, 0, code.size)
 }
